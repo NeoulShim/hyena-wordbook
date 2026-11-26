@@ -15,7 +15,7 @@ UI에는 파일 관리와 복수 단어장 기능이 없습니다. 서버에는 
 
 ## 개발 및 검증
 
-Node.js 24 이상을 사용합니다.
+Node.js 24 이상을 사용합니다. Worker 개발·배포에는 `npm ci`로 고정된 Wrangler 4.168.0을 설치합니다.
 
 ```sh
 node --test tests/*.test.js
@@ -29,7 +29,7 @@ node server.js
 
 GitHub Actions의 `.github/workflows/pages.yml`이 테스트 후 `dist/`만 GitHub Pages에 배포합니다. backend, Wrangler 설정, 테스트 및 개발 파일은 정적 배포물에 포함하지 않습니다.
 
-Cloudflare 배포에는 Wrangler의 계정 조회, Worker 편집, D1 편집 권한이 필요합니다.
+Cloudflare 배포에는 Wrangler의 계정·사용자 조회, Workers 및 Workers Scripts 편집, D1 편집 권한이 필요합니다. 아래 명령은 `npx wrangler` 또는 프로젝트 npm 스크립트로 실행합니다.
 
 1. `wrangler d1 create hyena-wordbook`으로 데이터베이스를 만들고 반환된 ID를 `wrangler.jsonc`에 지정합니다.
 2. `wrangler d1 migrations apply hyena-wordbook --remote`로 스키마를 적용합니다.

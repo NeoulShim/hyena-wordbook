@@ -3,5 +3,15 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "scripts": { "test": "node --test tests/*.test.js", "start": "node server.js", "build": "node scripts/build.mjs" }
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "start": "node server.js",
+    "build": "node scripts/build.mjs",
+    "deploy:worker": "wrangler deploy",
+    "migrate:remote": "wrangler d1 migrations apply hyena-wordbook --remote",
+    "dev:worker": "wrangler dev"
+  },
+  "devDependencies": {
+    "wrangler": "4.168.0"
+  }
 }

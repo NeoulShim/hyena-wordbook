@@ -1,2 +1,2 @@
 // Public API address only. Authentication material must never be placed here.
-export const API_BASE = '';
+export const API_BASE = 'https://hyena-wordbook-sync.neoulshim.workers.dev';

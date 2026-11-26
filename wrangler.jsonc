@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "hyena-wordbook-sync",
+  "account_id": "4eca4ed8a04d1a034ab4ac0b0474903c",
   "main": "backend/worker.js",
   "compatibility_date": "2026-11-26",
   "workers_dev": true,
@@ -9,7 +10,7 @@
   "d1_databases": [{
     "binding": "DB",
     "database_name": "hyena-wordbook",
-    "database_id": "00000000-0000-0000-0000-000000000000",
+    "database_id": "4f89d28e-066e-4ff2-b21e-dac4ee215681",
     "migrations_dir": "backend/migrations"
   }]
 }
