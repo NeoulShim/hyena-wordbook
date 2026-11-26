@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#7660bf">
+  <meta name="description" content="일본어 단어 등록, 숙련도 관리, 객관식 테스트를 지원하는 단어장.">
+  <title>혜나용 단어장 · HYENA NOTE</title>
+  <link rel="icon" type="image/svg+xml" href="./hyena.svg">
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">본문으로 이동</a>
+  <aside class="sidebar">
+    <a class="brand" href="./" aria-label="혜나용 단어장 홈"><img src="./hyena.svg" alt="" width="47" height="47"><span>혜나용 단어장<small>HYENA NOTE</small></span></a>
+    <div class="library-heading"><span>단어장 목록</span><button class="icon-button" id="new-book" aria-label="새 단어장 만들기">＋</button></div>
+    <nav id="book-list" aria-label="단어장 목록"></nav>
+    <button class="import-button" id="import-book"><span aria-hidden="true">↥</span> 단어장 불러오기</button>
+    <input type="file" id="file-input" accept=".neoulboard,application/json" hidden>
+    <div class="sidebar-bottom"><div class="storage-note" id="storage-note">이 브라우저에 자동 저장 중</div><button class="text-button" id="about-storage">데이터 저장 안내</button></div>
+  </aside>
+  <main id="main" tabindex="-1">
+    <header class="page-header"><div><p class="eyebrow">일본어 단어 관리</p><div class="title-line"><h1 id="book-title"></h1><button class="icon-button" id="edit-book" aria-label="단어장 이름 수정 및 삭제">···</button></div></div><button class="button secondary" id="export-book"><span aria-hidden="true">↓</span> 파일로 저장</button></header>
+    <div class="tabs" role="tablist" aria-label="학습 메뉴"><button id="words-tab" class="tab active" role="tab" aria-selected="true" aria-controls="words-panel">단어장 <span id="tab-count">0</span></button><button id="quiz-tab" class="tab" role="tab" aria-selected="false" aria-controls="quiz-panel" tabindex="-1">테스트</button></div>
+    <section id="words-panel" role="tabpanel" aria-labelledby="words-tab">
+      <div class="study-banner"><div><h2>단어 테스트</h2><p>숙련도를 선택하고 무작위 10문제를 풉니다.</p></div><button id="hero-quiz" class="button primary">테스트 시작</button></div>
+      <div id="stats" class="stats" aria-label="숙련도별 단어 수"></div>
+      <div class="section-top"><div><h2>단어장</h2><p id="list-description">등록된 단어를 검색하고 관리합니다.</p></div><button class="button primary" id="add-word">＋ 단어 추가</button></div>
+      <div class="search-row"><label class="search"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input id="search" type="search" placeholder="일본어, 읽기, 뜻으로 검색" aria-label="단어 검색"></label><select id="pos-filter" aria-label="품사 필터"><option value="all">모든 품사</option></select><select id="sort" aria-label="단어 정렬"><option value="newest">최근 추가순</option><option value="oldest">오래된 순</option><option value="alpha">가나다·가나순</option></select></div>
+      <div class="word-grid" id="word-grid"></div>
+      <p class="list-footer" id="list-footer"></p>
+    </section>
+    <section id="quiz-panel" role="tabpanel" aria-labelledby="quiz-tab" hidden></section>
+    <footer class="page-footer"><span>혜나용 단어장</span><a href="./licenses.html" target="_blank" rel="noopener">사전 출처 · 오픈소스</a></footer>
+  </main>
+  <dialog id="word-dialog"><form id="word-form"><div class="dialog-heading"><div><p class="eyebrow">단어 정보</p><h2 id="word-dialog-title">단어 추가</h2></div><button type="button" class="icon-button close-dialog" aria-label="닫기">×</button></div><div class="field-pair"><label>일본어 <span class="required">*</span><input name="term" id="word-term" required maxlength="100" placeholder="例：木漏れ日" lang="ja" autocomplete="off"></label><label>읽기 <span class="optional">선택</span><input name="reading" id="word-reading" maxlength="150" placeholder="こもれび" lang="ja" autocomplete="off"></label></div><div class="lookup-row"><button type="button" class="button secondary" id="lookup-word">읽기·뜻 다시 찾기</button><button type="button" class="button secondary" id="preview-voice">발음 듣기</button></div><p id="dictionary-note" class="dictionary-note" aria-live="polite"></p><div id="dictionary-results" class="dictionary-results"></div><label>뜻 <span class="required">*</span><input name="meaning" id="word-meaning" required maxlength="500" placeholder="나뭇잎 사이로 비치는 햇빛" autocomplete="off"></label><fieldset><legend>품사 <span class="optional">여러 개 선택 가능</span></legend><div id="pos-options" class="pos-options"></div><label class="custom-pos-label">추가 품사 <span class="optional">쉼표로 구분</span><input id="custom-pos" maxlength="200" placeholder="예: 관용구, 의성어"></label></fieldset><label>숙련도<select id="word-status"><option value="unknown">모르는 단어</option><option value="learning">알아듣지만 쓸 수 없는 단어</option><option value="mastered">완전히 외운 단어</option></select></label><p id="word-created" class="field-help"></p><p id="word-error" class="form-error" role="alert"></p><div class="dialog-actions"><button type="button" id="delete-word" class="button danger" hidden>단어 삭제</button><span class="spacer"></span><button type="button" class="button secondary close-dialog">취소</button><button class="button primary" type="submit">저장</button></div></form></dialog>
+  <dialog id="book-dialog"><form id="book-form"><div class="dialog-heading"><h2 id="book-dialog-title">새 단어장</h2><button type="button" class="icon-button close-dialog" aria-label="닫기">×</button></div><label>단어장 이름<input id="book-name" required maxlength="80" placeholder="예: 여행 일본어" autocomplete="off"></label><p id="book-error" class="form-error" role="alert"></p><div class="dialog-actions"><button type="button" id="delete-book" class="button danger" hidden>단어장 삭제</button><span class="spacer"></span><button type="button" class="button secondary close-dialog">취소</button><button type="submit" class="button primary">저장</button></div></form></dialog>
+  <dialog id="info-dialog"><div class="dialog-heading"><h2>데이터 저장 안내</h2><button class="icon-button close-dialog" aria-label="닫기">×</button></div><div class="info-copy"><p>단어장은 <strong>현재 브라우저</strong>에 자동 저장됩니다. 단어와 테스트 결과는 서버에 전송하지 않습니다.</p><p>기기를 변경하거나 단어장을 공유하려면 <strong>파일로 저장</strong>으로 <code>.neoulboard</code> 파일을 내려받으세요. 다른 기기에서는 <strong>단어장 불러오기</strong>를 선택하세요.</p><p>브라우저 데이터를 지우거나 시크릿 창을 닫으면 단어장이 삭제될 수 있습니다. 데이터 유실 방지를 위해 정기적으로 파일을 내보내세요.</p><p>발음 듣기는 기기의 일본어 음성을 사용합니다. 일본어 음성이 없으면 기기 설정에서 추가하세요. 온라인 음성만 있는 기기에서는 음성 제공자가 텍스트를 처리할 수 있으며, 재생 시 안내합니다.</p></div><button class="button primary close-dialog">확인</button></dialog>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
