@@ -1,42 +1,39 @@
-import { STORAGE_KEY, POS, STATUS, id, normalize, escapeHTML as esc, validateBook, parseCollection, serializeBoard, createQuiz, eligibleWords, sampleBook } from './core.js';
+import { STORAGE_KEY, POS, STATUS, id, normalize, escapeHTML as esc, validateBook, createQuiz, eligibleWords } from './core.js';
 import { lookupWord, getReading } from './dictionary.js';
-import { createFileSync } from './file-sync.js';
+import { createCloudSync } from './cloud-sync.js';
+import { sharedBook } from './sync-model.js';
+import { API_BASE } from './cloud-config.js';
+const CACHE_KEY = 'hyena-note:shared-cache:v1';
 const $ = selector => document.querySelector(selector);
 const speaker = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/></svg>';
-let state, persistence = true, conflict = false, initialMessage = '', lastRaw, fileSync;
+let state, persistence = true, initialMessage = '', lastRaw, cloudSync;
 try {
-  lastRaw = localStorage.getItem(STORAGE_KEY);
-  if (lastRaw) {
-    const saved = JSON.parse(lastRaw);
-    if (saved.version !== 1 || !Array.isArray(saved.books) || !saved.books.length) throw Error();
-    state = { version: 1, activeId: saved.activeId, books: saved.books.map(validateBook) };
-    if (new Set(state.books.map(b=>b.id)).size !== state.books.length) throw Error();
-  }
-} catch { persistence = false; initialMessage = '저장된 데이터를 읽지 못했습니다. 기존 데이터는 보존했습니다. 지금 만든 단어장은 파일로 저장하세요.'; }
-if (!state) { const book = sampleBook(); state = {version:1, activeId:book.id, books:[book]}; }
-if (!state.books.some(b => b.id === state.activeId)) state.activeId = state.books[0].id;
-let statusFilter = 'all', view = 'words', scope = 'learning', quiz = null, editingWord = null, editingBook = false, toastTimer, lookupTimer, lookupGeneration = 0, autoValues = {};
+  lastRaw = localStorage.getItem(CACHE_KEY);
+  const cached = lastRaw ? validateBook(JSON.parse(lastRaw)) : sharedBook(JSON.parse(localStorage.getItem(STORAGE_KEY)));
+  cached.id = 'shared'; cached.name = '단어장';
+  state = { version: 1, activeId: 'shared', books: [cached] };
+} catch { persistence = false; initialMessage = '브라우저 저장소를 읽지 못했습니다. 서버에서 단어장을 불러옵니다.'; }
+if (!state) state = { version: 1, activeId: 'shared', books: [sharedBook(null)] };
+let statusFilter = 'all', view = 'words', scope = 'learning', quiz = null, editingWord = null, toastTimer, lookupTimer, lookupGeneration = 0, autoValues = {};
 const book = () => state.books.find(b=>b.id === state.activeId);
 const dateLabel = date => new Intl.DateTimeFormat('ko-KR', {year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(date));
 const fullDate = date => new Intl.DateTimeFormat('ko-KR', {dateStyle:'long',timeStyle:'short'}).format(new Date(date));
 function toast(message, error = false) { clearTimeout(toastTimer); const element = $('#toast'); element.textContent = message; element.classList.toggle('error', error); element.hidden = false; toastTimer = setTimeout(()=>{element.hidden=true;},error?8500:4200); }
-function storageNote() { $('#storage-note').textContent = persistence ? '이 브라우저에 자동 저장 중' : '자동 저장 불가 · 파일로 저장해 주세요'; $('#storage-note').classList.toggle('error',!persistence); }
+function storageNote() { $('#storage-note').textContent = persistence ? 'Cloudflare 동기화' : '브라우저 보관 불가 · 온라인 연결 필요'; $('#storage-note').classList.toggle('error',!persistence); }
 function persist() {
   if (!persistence) return;
-  try { lastRaw = JSON.stringify(state); localStorage.setItem(STORAGE_KEY, lastRaw); }
-  catch { persistence=false; storageNote(); toast('브라우저 저장 공간이 부족하거나 차단되었습니다. 변경 내용은 파일로 저장하세요.',true); }
+  try { lastRaw = JSON.stringify(book()); localStorage.setItem(CACHE_KEY, lastRaw); }
+  catch { persistence=false; storageNote(); toast('브라우저 저장 공간이 부족하거나 차단되었습니다. 온라인 상태에서 동기화 완료를 확인하세요.',true); }
 }
 function update(change) {
-  if (conflict) { toast('다른 탭에서 단어장이 변경되었습니다. 새로고침한 뒤 수정하세요.',true); return false; }
-  change(state); persist(); fileSync?.schedule(); return true;
+  if (!cloudSync?.hasSession()) { openAuth(); return false; }
+  if (!cloudSync.canEdit()) { toast('서버 단어장을 불러온 후 수정할 수 있습니다.', true); return false; }
+  change(state); persist(); cloudSync.changed(); return true;
 }
-window.addEventListener('storage', event => {
-  if (event.key === STORAGE_KEY && event.newValue !== lastRaw) { conflict=true; persistence=false; storageNote(); toast('다른 탭에서 변경했습니다. 최신 단어장을 사용하려면 새로고침하세요.',true); }
-});
+window.addEventListener('storage', event => { if (event.key === CACHE_KEY && event.newValue !== lastRaw) void cloudSync?.refresh(); });
 function render() {
   $('#book-title').textContent=book().name;
   $('#tab-count').textContent=book().words.length;
-  $('#book-list').innerHTML=state.books.map(b=>`<button class="book-link ${b.id===state.activeId?'active':''}" data-book="${esc(b.id)}" ${b.id===state.activeId?'aria-current="page"':''}><span aria-hidden="true">▤</span><span class="book-label">${esc(b.name)}</span><small>${b.words.length}</small></button>`).join('');
   const counts = Object.fromEntries(Object.keys(STATUS).map(s=>[s,book().words.filter(w=>w.status===s).length]));
   $('#stats').innerHTML=[['all','모든 단어','▤',book().words.length],...Object.entries(STATUS).map(([key,s])=>[key,s.short,s.symbol,counts[key]])].map(([key,label,symbol,count])=>`<button class="stat ${key} ${statusFilter===key?'active':''}" data-filter="${key}" aria-pressed="${statusFilter===key}" ${STATUS[key]?`title="${esc(STATUS[key].label)}"`:''}><span class="stat-symbol" aria-hidden="true">${symbol}</span><span><span class="stat-label">${label}</span><strong>${count}<small>개</small></strong></span></button>`).join('');
   const selected = $('#pos-filter').value;
@@ -57,12 +54,11 @@ function renderWords() {
 }
 function setView(next) {
   view=next;
-  for(const type of ['words','quiz']) {const active=next===type; $(`#${type}-panel`).hidden=!active; $(`#${type}-tab`).classList.toggle('active',active); $(`#${type}-tab`).setAttribute('aria-selected',active); $(`#${type}-tab`).tabIndex=active?0:-1;}
+  for(const type of ['words','quiz']) {const active=next===type; $(`#side-${type}`).classList.toggle('active',active); $(`#${type}-panel`).hidden=!active; $(`#${type}-tab`).classList.toggle('active',active); $(`#${type}-tab`).setAttribute('aria-selected',active); $(`#${type}-tab`).tabIndex=active?0:-1;}
   if(next==='quiz') renderQuiz();
 }
 function resetFilters(){statusFilter='all';$('#search').value='';$('#pos-filter').value='all';render();}
 function leaveQuiz(){return !quiz || quiz.done || confirm('진행 중인 시험을 종료하시겠습니까? 현재 시험 답안은 저장되지 않습니다.');}
-$('#book-list').addEventListener('click',event=>{const button=event.target.closest('[data-book]');if(!button||button.dataset.book===state.activeId||!leaveQuiz())return;if(!update(s=>{s.activeId=button.dataset.book;}))return;quiz=null;resetFilters();});
 $('#stats').addEventListener('click',event=>{const b=event.target.closest('[data-filter]');if(b){statusFilter=b.dataset.filter;render();}});
 $('#search').addEventListener('input',renderWords);
 $('#pos-filter').addEventListener('change',renderWords);
@@ -100,19 +96,6 @@ $('#delete-word').addEventListener('click',()=>{if(!confirm('이 단어를 삭�
 $('#word-grid').addEventListener('click',event=>{
   const edit=event.target.closest('[data-edit]'),say=event.target.closest('[data-speak]'),action=event.target.closest('[data-action]');
   if(edit)openWord(edit.dataset.edit);if(say)speakWord(book().words.find(w=>w.id===say.dataset.speak));if(action){if(action.dataset.action==='add')openWord();else resetFilters();}
-});
-function openBook(edit=false){editingBook=edit;$('#book-dialog-title').textContent=edit?'단어장 관리':'새 단어장';$('#book-name').value=edit?book().name:'';$('#delete-book').hidden=!edit;$('#book-error').textContent='';$('#book-dialog').showModal();$('#book-name').focus();}
-$('#new-book').addEventListener('click',()=>{if(leaveQuiz())openBook();});$('#edit-book').addEventListener('click',()=>openBook(true));
-$('#book-form').addEventListener('submit',event=>{event.preventDefault();const name=$('#book-name').value.trim();if(!name){$('#book-error').textContent='단어장 이름을 입력하세요.';return;}if(!update(s=>{if(editingBook)book().name=name;else{const b={id:id(),name,createdAt:new Date().toISOString(),words:[]};s.books.push(b);s.activeId=b.id;quiz=null;}}))return;$('#book-dialog').close();resetFilters();setView('words');toast('단어장을 저장했습니다.');});
-$('#delete-book').addEventListener('click',()=>{if(!confirm(`“${book().name}” 단어장과 그 안의 ${book().words.length}개 단어를 삭제하시겠습니까? 필요하면 먼저 파일로 저장하세요.`))return;if(!update(s=>{s.books=s.books.filter(b=>b.id!==s.activeId);if(!s.books.length)s.books=[{id:id(),name:'기본 단어장',createdAt:new Date().toISOString(),words:[]}];s.activeId=s.books[0].id;quiz=null;}))return;$('#book-dialog').close();resetFilters();setView('words');toast('단어장을 삭제했습니다.');});
-$('#export-book').addEventListener('click',()=>{
-  const blob=new Blob([serializeBoard(book())],{type:'application/json;charset=utf-8'}),url=URL.createObjectURL(blob),anchor=document.createElement('a');
-  anchor.href=url;anchor.download=`${book().name.replace(/[<>:"/\\|?*\u0000-\u001f]/g,'_')}.neoulboard`;document.body.append(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);toast('단어장 파일을 저장했습니다. 다운로드 폴더를 확인하세요.');
-});
-$('#import-book').addEventListener('click',()=>{if(leaveQuiz())$('#file-input').click();});
-$('#file-input').addEventListener('change',async event=>{
-  const file=event.target.files[0];if(!file)return;
-  try{if(file.size>15*1024*1024)throw Error('15MB 이하의 단어장 파일을 선택하세요.');const imported=parseCollection(await file.text());for(const b of imported.books){b.id=id();if(state.books.some(old=>old.name===b.name))b.name=`${b.name.slice(0,70)} (불러옴)`;}if(!update(s=>{s.books.push(...imported.books);s.activeId=imported.books[0].id;quiz=null;}))return;resetFilters();setView('words');toast(`${imported.books.length}개 단어장을 불러왔습니다. 기존 단어장은 유지됩니다.`);}catch(error){toast(error.message,true);}finally{event.target.value='';}
 });
 $('#about-storage').addEventListener('click',()=>$('#info-dialog').showModal());
 function speakWord(word){
@@ -192,19 +175,42 @@ $('#pos-options').addEventListener('change',()=>{delete autoValues.pos;});
 $('#custom-pos').addEventListener('input',()=>{delete autoValues.pos;});
 $('#lookup-word').addEventListener('click',()=>{clearTimeout(lookupTimer);lookup(true);});
 $('#preview-voice').addEventListener('click',()=>speakWord({term:$('#word-term').value,reading:$('#word-reading').value}));
-fileSync=createFileSync({getState:()=>state,onLoad:next=>{if(conflict)throw Error('다른 탭에서 변경되었습니다. 새로고침하세요.');state=next;quiz=null;persist();resetFilters();render();},onStatus:info=>{
-  $('#file-status').textContent=info.message;
-  $('#save-status').textContent=info.connected?info.message:'기본 저장소: 이 브라우저 · 자동 저장';
-  $('#file-help').textContent=info.supported?'한 번 파일을 지정하면 단어장 목록 전체를 자동 저장하고 다음 실행 시 복원합니다. 브라우저가 파일 접근 권한을 만료시키면 연결 복원이 필요합니다.':'이 브라우저는 파일 연결을 지원하지 않습니다. 단어장은 브라우저 내부에 자동 저장되며, 다음 실행 시 자동 복원됩니다. 파일 내보내기·불러오기는 사용할 수 있습니다.';
-  $('#file-create').disabled=!info.supported;$('#file-open').disabled=!info.supported;
-  $('#file-resume').hidden=!info.connected||!['permission','error','pending'].includes(info.kind);
-  $('#file-reload').hidden=!info.connected;$('#file-disconnect').hidden=!info.connected;
-},onError:message=>toast(message,true)});
-$('#file-settings').addEventListener('click',()=>$('#file-dialog').showModal());
-for(const [button,method] of [['file-create','createNew'],['file-open','openExisting'],['file-resume','resume'],['file-reload','reload'],['file-disconnect','disconnect']])$('#'+button).addEventListener('click',async()=>{
-  if(conflict){toast('다른 탭에서 변경되었습니다. 새로고침하세요.',true);return;}
-  if(method==='reload'&&!confirm('연결된 파일의 내용으로 단어장 목록을 다시 불러오시겠습니까? 파일에 저장되지 않은 변경은 브라우저 목록에서 대체됩니다.'))return;
-  try{await fileSync[method]();toast(method==='disconnect'?'파일 연결을 해제했습니다. 브라우저 자동 저장은 유지됩니다.':'자동 저장 설정을 적용했습니다.');}catch(error){if(error.name!=='AbortError')toast(error.message,true);}
+function openAuth() {
+  document.querySelectorAll('dialog[open]').forEach(dialog => dialog.close());
+  if (!$('#auth-dialog').open) $('#auth-dialog').showModal();
+  $('#sync-key').focus();
+}
+cloudSync = createCloudSync({
+  apiBase: API_BASE,
+  getBoard: () => book(),
+  canApply: () => !$('#word-dialog').open && !$('#conflict-dialog').open,
+  onBoard: next => { state = {version:1,activeId:'shared',books:[structuredClone(next)]}; persist(); render(); },
+  onAuth: openAuth,
+  onStatus: info => {
+    $('#save-status').textContent = info.message;
+    $('#save-status').dataset.state = info.kind;
+    $('#sync-session').hidden = !info.connected;
+    $('#sync-conflicts').hidden = info.kind !== 'conflict';
+    $('#conflict-count').textContent = info.conflicts.length ? info.conflicts.length+'개 단어에 중복 수정이 있습니다.' : '';
+    $('#conflict-list').replaceChildren(...info.conflicts.map(item => {const li=document.createElement('li');li.textContent=item.term;return li;}));
+  }
 });
-render();storageNote();persist();if(initialMessage)toast(initialMessage,true);
-void fileSync.restore();
+$('#auth-dialog').addEventListener('cancel', event => event.preventDefault());
+$('#auth-form').addEventListener('submit', async event => {
+  event.preventDefault(); const input = $('#sync-key'), key = input.value;
+  if (!key) return; $('#auth-submit').disabled = true; $('#auth-error').textContent = '';
+  try { await cloudSync.login(key); $('#auth-dialog').close(); }
+  catch (error) { $('#auth-error').textContent = error.message; }
+  finally { input.value = ''; $('#auth-submit').disabled = false; }
+});
+$('#sync-now').addEventListener('click', () => void cloudSync.refresh());
+$('#sync-session').addEventListener('click', async () => {try {await cloudSync.logout();}catch(error){toast(error.message,true);}});
+$('#sync-conflicts').addEventListener('click', () => $('#conflict-dialog').showModal());
+for (const choice of ['local','remote']) $('#choose-'+choice).addEventListener('click', async () => {
+  $('#conflict-dialog').close(); try {await cloudSync.resolve(choice);} catch(error){toast(error.message,true);}
+});
+$('#word-dialog').addEventListener('close', () => void cloudSync.refresh());
+$('#side-words').addEventListener('click',()=>setView('words'));
+$('#side-quiz').addEventListener('click',()=>setView('quiz'));
+render();storageNote();if(initialMessage)toast(initialMessage,true);
+void cloudSync.start();

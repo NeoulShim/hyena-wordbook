@@ -2,3 +2,7 @@
 node_modules/
 artifacts/
 dist/
+.wrangler/
+.dev.vars*
+.env*
+!backend/.env.example

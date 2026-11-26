@@ -1,47 +1,55 @@
-# 혜나용 단어장 · HYENA NOTE
+# 혜나용 단어장
 
-혜나를 위한 서버 없는 일본어 단어장. 하이에나 아이콘과 한국어 UI, 모바일 지원.
+일본어 단어, 읽기, 한국어 뜻, 품사, 숙련도를 관리하는 개인용 웹 단어장입니다.
 
-- 여러 단어장, 단어 추가·수정·삭제, 검색·품사·숙련도 필터
-- 복수 품사 + 하나의 숙련도 + 변경되지 않는 입력일
-- 브라우저 자동 저장·복원, `.neoulboard` JSON 파일 내보내기·불러오기
-- 자동 저장 파일 연결: 전체 단어장 목록을 `default.neoulboard`에 저장·복원 (지원 브라우저)
-- 숙련도별 무작위 최대 10문제, 2–4지선다, 정오답, 오답 재시험, 결과에서 태그 수정
-- 일본어 입력 시 한국어 사전 후보 자동 채우기, 사전에 없는 읽기는 kuromoji로 분석
-- 기기 일본어 TTS로 발음 듣기 (로컬 음성 우선)
+- 프런트엔드: https://neoulshim.github.io/hyena-wordbook/
+- GitHub Pages: 정적 화면과 사전 제공
+- Cloudflare Worker + D1: 인증, 세션, 단일 공유 단어장 저장
+- 처음 한 번 동기화 키로 연결하면 같은 브라우저에서는 자동 접속
+- 단어 변경 자동 저장, 다른 기기 변경은 포커스 복귀 또는 15초 간격으로 반영
+- 오프라인 변경 임시 보관, 독립적인 수정 병합, 동일 항목 충돌 시 선택
+- 최대 10개 무작위 객관식 테스트, 숙련도별 범위, 정오답 확인 및 태그 수정
+- 한국어 사전 자동 입력, kuromoji 가나 읽기, 기기 일본어 TTS
 
-## 실행·검증
+UI에는 파일 관리와 복수 단어장 기능이 없습니다. 서버에는 단어장 하나만 존재합니다. 최초 서버 생성 시 기존 브라우저 단어장이 있으면 합쳐 올리고, 이미 서버 단어장이 있으면 서버 데이터를 불러옵니다. 이전 버전의 브라우저 저장소는 자동으로 삭제하지 않습니다.
 
-Node.js 24에서 설치할 패키지 없이 실행합니다.
+## 개발 및 검증
+
+Node.js 24 이상을 사용합니다.
 
 ```sh
-node server.js
 node --test tests/*.test.js
 node scripts/build.mjs
+node server.js
 ```
 
-미리보기: `http://127.0.0.1:4173`. `dist/`가 정적 배포 결과입니다. 파일을 더블클릭하는 `file://` 방식은 모듈과 사전 로딩을 지원하지 않으므로 정적 HTTP 서버를 이용하세요.
+`server.js`는 정적 화면만 제공합니다. 동기화를 개발하려면 Wrangler의 로컬 Worker/D1을 실행하고 `cloud-config.js`의 공개 API 주소와 Worker `ALLOWED_ORIGINS`를 로컬 주소에 맞추세요. 테스트에는 운영 키를 사용하지 마세요.
 
-## GitHub Pages
+## 배포
 
-저장소: `NeoulShim/hyena-wordbook`. `main` 브랜치를 푸시하면 GitHub Actions가 테스트 후 배포합니다. 사이트: https://neoulshim.github.io/hyena-wordbook/
+GitHub Actions의 `.github/workflows/pages.yml`이 테스트 후 `dist/`만 GitHub Pages에 배포합니다. backend, Wrangler 설정, 테스트 및 개발 파일은 정적 배포물에 포함하지 않습니다.
 
-## 기본 저장과 파일 자동 저장
+Cloudflare 배포에는 Wrangler의 계정 조회, Worker 편집, D1 편집 권한이 필요합니다.
 
-앱을 다시 열면 브라우저 저장소에서 마지막 단어장 목록을 자동 복원합니다. 수동 불러오기가 필요하지 않습니다. `저장 설정`에서 새 자동 저장 파일을 지정하거나 기존 파일을 연결할 수도 있습니다. 기본 파일명은 `default.neoulboard`이며 전체 단어장 목록을 담습니다. 사용자가 고른 파일 핸들은 IndexedDB에 보관하고, 단어 변경 후 파일과 브라우저에 저장합니다. 다음 실행 시 파일을 읽으며 외부에서 변경된 파일을 자동 덮어쓰지 않습니다.
+1. `wrangler d1 create hyena-wordbook`으로 데이터베이스를 만들고 반환된 ID를 `wrangler.jsonc`에 지정합니다.
+2. `wrangler d1 migrations apply hyena-wordbook --remote`로 스키마를 적용합니다.
+3. `AUTH_KEY_HASH` Worker Secret에 동기화 키의 SHA-256(UTF-8, 소문자 64자리 hex)을 등록합니다. 실제 키와 해시를 소스, 명령행 인수, 환경 파일, 로그에 기록하지 마세요. Secret 입력은 숨김 표준 입력을 사용합니다.
+4. `wrangler deploy`로 Worker를 배포합니다.
+5. 배포된 HTTPS API 주소만 `cloud-config.js`에 설정한 뒤 GitHub에 푸시합니다.
 
-File System Access API가 필요합니다. 지원하지 않는 브라우저는 내부 저장소를 사용합니다. 브라우저가 권한을 만료시키면 `연결 복원`을 눌러야 합니다. 파일 접근이 끊기거나 저장에 실패하면 변경 사항을 브라우저에 보관하고 복구 때 다시 저장합니다. 파일의 절대 경로는 웹앱에서 임의 지정하거나 조회할 수 없습니다.
+`ALLOWED_ORIGINS`는 `https://neoulshim.github.io`로 제한합니다. API 주소와 데이터베이스 ID는 공개 설정이며 인증 수단이 아닙니다.
 
-## 데이터와 사전
+## 인증과 보관
 
-사용자 데이터는 브라우저 `localStorage`의 `hyena-note:v1`에 저장합니다. 내보낸 파일은 `format`, `version`, `exportedAt`, `dictionaryAttribution`, `book`을 갖습니다. `book.words`는 `id`, `term`, `reading`, `meaning`, `pos` 배열, `status` (`unknown`, `learning`, `mastered`), `createdAt` ISO 날짜를 보존합니다. 최대 10,000단어, 파일 최대 15MB. 시험 결과는 현재 세션에만 존재합니다. 다른 탭이 데이터를 변경하면 충돌 방지를 위해 새로고침을 요구합니다.
-
-한국어 위키낱말사전 / Kaikki의 일본어 자료를 CC BY-SA 4.0으로 가공해 동봉했습니다. 출처·가공 내역은 `data/japanese-ko.json`, `licenses.html`에 있고, 내려받은 단어장에도 출처 메타데이터가 포함됩니다. 뜻풀이·품사는 사용자가 확인해서 수정할 수 있습니다. 읽기는 사전에 있는 루비를 우선하고, 없으면 별도 Web Worker에서 kuromoji.js 0.1.2와 IPADIC으로 분석합니다. 읽기 사전은 처음 필요할 때 약 18MB를 불러오므로 느린 네트워크에서는 시간이 걸릴 수 있습니다. 업데이트는 앱 배포 시 함께 수행합니다.
-
-사전 재생성: Kaikki의 일본어 JSONL 파일을 내려받고 `node scripts/build-dictionary.mjs /absolute/path/to/source.jsonl`. 원자료 시점이 달라지면 스크립트와 출처 페이지의 덤프 날짜도 갱신하세요.
-
-음성 파일, 유료 API, 서버, 인증키는 필요하지 않습니다. 실제 음질과 지원 여부는 OS·브라우저·설치 음성에 따라 다릅니다. 로컬 일본어 음성이 없고 온라인 음성이 제공되면 안내 후 해당 음성을 사용합니다. 단어장이 다른 기기로 자동 동기화되지는 않으므로 파일로 옮기세요.
+- 키 검증은 Worker에서만 수행하며, 프런트엔드에는 키나 검증용 해시를 넣지 않습니다.
+- 로그인 시 임의의 256비트 세션 토큰을 발급합니다. 브라우저는 토큰만 보관하고 서버는 그 해시를 저장합니다.
+- 인증 없이 단어장을 조회하거나 수정할 수 없습니다. 응답에는 `Cache-Control: no-store`를 적용합니다.
+- 로그인은 IP별 10분당 10회로 제한합니다. 요청 본문을 로깅하지 않으며 Worker observability도 끕니다.
+- 세션은 마지막 사용 이후 약 1년간 유효하며 하루 단위로 갱신합니다. 세션 해제 시 서버에서도 폐기됩니다. Worker Secret을 변경하면 기존 세션은 무효화됩니다.
+- 브라우저 저장소 삭제 또는 세션 만료 후에는 키를 다시 입력합니다. 인증된 브라우저에는 단어장 캐시와 세션 토큰이 남습니다.
+- 단어장 저장은 D1 트랜잭션과 버전 확인으로 처리합니다. 오래된 버전은 덮어쓰지 않으며 단어의 기존 입력일은 서버에서도 보존합니다.
+- 테스트 답안은 서버에 보내지 않습니다. 결과 창에서 변경한 단어 태그만 동기화합니다.
 
 ## 라이선스
 
-사전 데이터: CC BY-SA 4.0. kuromoji.js: Apache-2.0. IPADIC: `vendor/kuromoji/NOTICE.md`의 조건. 타사 자료의 원 라이선스와 출처를 유지하세요.
+사전 데이터: 한국어 위키낱말사전/Kaikki, CC BY-SA 4.0. kuromoji.js: Apache-2.0. IPADIC: `vendor/kuromoji/NOTICE.md`의 조건. 상세 출처와 가공 내용은 `licenses.html`에 있습니다.
