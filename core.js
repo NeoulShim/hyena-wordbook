@@ -40,6 +40,20 @@ export function parseBoard(contents) {
   return validateBook(parsed.book);
 }
 export const serializeBoard = book => JSON.stringify({ format: FORMAT, version: VERSION, exportedAt: new Date().toISOString(), dictionaryAttribution: { source: 'Korean Wiktionary contributors, via Kaikki.org / Wiktextract', url: 'https://kaikki.org/kowiktionary/일본어/index.html', originalEntryUrl: 'https://ko.wiktionary.org/wiki/{term}', license: 'CC BY-SA 4.0', licenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0/', note: 'Applies to dictionary-derived definitions. Readings and POS may have been normalized and users may have edited definitions. User-authored entries remain their own.' }, book: validateBook(book) }, null, 2);
+export function parseCollection(contents){
+  let data;try{data=JSON.parse(contents);}catch{throw Error('단어장 파일을 읽을 수 없습니다.');}
+  if(data?.format!==FORMAT||data.version!==VERSION)throw Error('지원하지 않는 단어장 파일입니다.');
+  if(!data.library){const single=parseBoard(contents);return {version:1,activeId:single.id,books:[single]};}
+  if(!Array.isArray(data.library.books)||!data.library.books.length||data.library.books.length>100)throw Error('단어장 목록 형식이 올바르지 않습니다.');
+  const books=data.library.books.map(validateBook);
+  if(new Set(books.map(b=>b.id)).size!==books.length)throw Error('단어장 ID가 중복되었습니다.');
+  return {version:1,books,activeId:books.some(b=>b.id===data.library.activeId)?data.library.activeId:books[0].id};
+}
+export function serializeCollection(state){
+  const {dictionaryAttribution}=JSON.parse(serializeBoard(state.books[0]));
+  const payload={format:FORMAT,version:VERSION,exportedAt:new Date().toISOString(),dictionaryAttribution,library:{version:1,activeId:state.activeId,books:state.books}};
+  parseCollection(JSON.stringify(payload));return JSON.stringify(payload,null,2);
+}
 export function shuffle(items, random = Math.random) {
   const result = [...items];
   for (let i = result.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); [result[i], result[j]] = [result[j], result[i]]; }

@@ -1,8 +1,9 @@
-import { STORAGE_KEY, POS, STATUS, id, normalize, escapeHTML as esc, validateBook, parseBoard, serializeBoard, createQuiz, eligibleWords, sampleBook } from './core.js';
+import { STORAGE_KEY, POS, STATUS, id, normalize, escapeHTML as esc, validateBook, parseCollection, serializeBoard, createQuiz, eligibleWords, sampleBook } from './core.js';
 import { lookupWord, getReading } from './dictionary.js';
+import { createFileSync } from './file-sync.js';
 const $ = selector => document.querySelector(selector);
 const speaker = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/></svg>';
-let state, persistence = true, conflict = false, initialMessage = '', lastRaw;
+let state, persistence = true, conflict = false, initialMessage = '', lastRaw, fileSync;
 try {
   lastRaw = localStorage.getItem(STORAGE_KEY);
   if (lastRaw) {
@@ -27,7 +28,7 @@ function persist() {
 }
 function update(change) {
   if (conflict) { toast('다른 탭에서 단어장이 변경되었습니다. 새로고침한 뒤 수정하세요.',true); return false; }
-  change(state); persist(); return true;
+  change(state); persist(); fileSync?.schedule(); return true;
 }
 window.addEventListener('storage', event => {
   if (event.key === STORAGE_KEY && event.newValue !== lastRaw) { conflict=true; persistence=false; storageNote(); toast('다른 탭에서 변경했습니다. 최신 단어장을 사용하려면 새로고침하세요.',true); }
@@ -111,7 +112,7 @@ $('#export-book').addEventListener('click',()=>{
 $('#import-book').addEventListener('click',()=>{if(leaveQuiz())$('#file-input').click();});
 $('#file-input').addEventListener('change',async event=>{
   const file=event.target.files[0];if(!file)return;
-  try{if(file.size>15*1024*1024)throw Error('15MB 이하의 단어장 파일을 선택하세요.');const imported=parseBoard(await file.text());imported.id=id();if(state.books.some(b=>b.name===imported.name))imported.name=`${imported.name.slice(0,70)} (불러옴)`;if(!update(s=>{s.books.push(imported);s.activeId=imported.id;quiz=null;}))return;resetFilters();setView('words');toast(`${imported.words.length}개 단어를 불러왔습니다. 기존 단어장은 유지됩니다.`);}catch(error){toast(error.message,true);}finally{event.target.value='';}
+  try{if(file.size>15*1024*1024)throw Error('15MB 이하의 단어장 파일을 선택하세요.');const imported=parseCollection(await file.text());for(const b of imported.books){b.id=id();if(state.books.some(old=>old.name===b.name))b.name=`${b.name.slice(0,70)} (불러옴)`;}if(!update(s=>{s.books.push(...imported.books);s.activeId=imported.books[0].id;quiz=null;}))return;resetFilters();setView('words');toast(`${imported.books.length}개 단어장을 불러왔습니다. 기존 단어장은 유지됩니다.`);}catch(error){toast(error.message,true);}finally{event.target.value='';}
 });
 $('#about-storage').addEventListener('click',()=>$('#info-dialog').showModal());
 function speakWord(word){
@@ -191,4 +192,19 @@ $('#pos-options').addEventListener('change',()=>{delete autoValues.pos;});
 $('#custom-pos').addEventListener('input',()=>{delete autoValues.pos;});
 $('#lookup-word').addEventListener('click',()=>{clearTimeout(lookupTimer);lookup(true);});
 $('#preview-voice').addEventListener('click',()=>speakWord({term:$('#word-term').value,reading:$('#word-reading').value}));
+fileSync=createFileSync({getState:()=>state,onLoad:next=>{if(conflict)throw Error('다른 탭에서 변경되었습니다. 새로고침하세요.');state=next;quiz=null;persist();resetFilters();render();},onStatus:info=>{
+  $('#file-status').textContent=info.message;
+  $('#save-status').textContent=info.connected?info.message:'기본 저장소: 이 브라우저 · 자동 저장';
+  $('#file-help').textContent=info.supported?'한 번 파일을 지정하면 단어장 목록 전체를 자동 저장하고 다음 실행 시 복원합니다. 브라우저가 파일 접근 권한을 만료시키면 연결 복원이 필요합니다.':'이 브라우저는 파일 연결을 지원하지 않습니다. 단어장은 브라우저 내부에 자동 저장되며, 다음 실행 시 자동 복원됩니다. 파일 내보내기·불러오기는 사용할 수 있습니다.';
+  $('#file-create').disabled=!info.supported;$('#file-open').disabled=!info.supported;
+  $('#file-resume').hidden=!info.connected||!['permission','error','pending'].includes(info.kind);
+  $('#file-reload').hidden=!info.connected;$('#file-disconnect').hidden=!info.connected;
+},onError:message=>toast(message,true)});
+$('#file-settings').addEventListener('click',()=>$('#file-dialog').showModal());
+for(const [button,method] of [['file-create','createNew'],['file-open','openExisting'],['file-resume','resume'],['file-reload','reload'],['file-disconnect','disconnect']])$('#'+button).addEventListener('click',async()=>{
+  if(conflict){toast('다른 탭에서 변경되었습니다. 새로고침하세요.',true);return;}
+  if(method==='reload'&&!confirm('연결된 파일의 내용으로 단어장 목록을 다시 불러오시겠습니까? 파일에 저장되지 않은 변경은 브라우저 목록에서 대체됩니다.'))return;
+  try{await fileSync[method]();toast(method==='disconnect'?'파일 연결을 해제했습니다. 브라우저 자동 저장은 유지됩니다.':'자동 저장 설정을 적용했습니다.');}catch(error){if(error.name!=='AbortError')toast(error.message,true);}
+});
 render();storageNote();persist();if(initialMessage)toast(initialMessage,true);
+void fileSync.restore();
