@@ -49,7 +49,7 @@ function renderWords() {
   const words=book().words.filter(w=>(statusFilter==='all'||w.status===statusFilter)&&(pos==='all'||w.pos.includes(pos))&&(!query||normalize(`${w.term} ${w.reading} ${w.meaning}`).includes(query)));
   words.sort((a,b)=>sort==='alpha'?a.term.localeCompare(b.term,'ja'):sort==='oldest'?Date.parse(a.createdAt)-Date.parse(b.createdAt):Date.parse(b.createdAt)-Date.parse(a.createdAt));
   $('#list-description').textContent=statusFilter==='all'?'등록된 단어를 검색하고 관리합니다.':STATUS[statusFilter].label;
-  $('#word-grid').innerHTML=words.length?words.map(w=>`<article class="word-card"><div class="card-top"><button class="status-pill ${w.status}" data-edit="${esc(w.id)}" title="${esc(STATUS[w.status].label)} · 태그 수정">${STATUS[w.status].short}</button><button class="icon-button" data-edit="${esc(w.id)}" aria-label="${esc(w.term)} 수정">···</button></div><div class="word-term-line"><h3 class="word-term" lang="ja">${esc(w.term)}</h3><button class="speak-button" data-speak="${esc(w.id)}" aria-label="${esc(w.term)} 발음 듣기">${speaker}</button></div><p class="word-reading" lang="ja">${esc(w.reading)}</p><p class="word-meaning">${esc(w.meaning)}</p><div class="card-bottom"><div class="pos-tags">${w.pos.map(p=>`<span class="pos-tag">${esc(p)}</span>`).join('')}</div><time class="card-date" datetime="${esc(w.createdAt)}" title="${esc(fullDate(w.createdAt))} 입력">${dateLabel(w.createdAt)}</time></div></article>`).join(''):`<div class="empty"><h3>${book().words.length?'검색 결과 없음':'등록된 단어 없음'}</h3><p>${book().words.length?'검색어나 필터를 변경하세요.':'단어 추가 버튼으로 새 단어를 등록하세요.'}</p><button class="button primary" data-action="${book().words.length?'reset-filters':'add'}">${book().words.length?'필터 초기화':'단어 추가'}</button></div>`;
+  $('#word-grid').innerHTML=words.length?words.map(w=>`<article class="word-card"><div class="card-top"><button class="status-pill ${w.status}" data-edit="${esc(w.id)}" title="${esc(STATUS[w.status].label)} · 태그 수정">${STATUS[w.status].short}</button><button class="icon-button" data-edit="${esc(w.id)}" aria-label="${esc(w.term)} 수정">···</button></div><div class="word-term-line"><h3 class="word-term" lang="ja">${esc(w.term)}</h3><button class="speak-button" data-speak="${esc(w.id)}" aria-label="${esc(w.term)} 발음 듣기">${speaker}</button></div><p class="word-reading" lang="ja">${esc(w.reading)}</p><p class="word-meaning">${esc(w.meaning)}</p><div class="card-bottom"><div class="pos-tags">${w.pos.map(p=>`<span class="pos-tag">${esc(p)}</span>`).join('')}</div><div class="card-meta"><time class="card-date" datetime="${esc(w.createdAt)}" title="${esc(fullDate(w.createdAt))} 입력">${dateLabel(w.createdAt)}</time><button class="card-delete" data-delete="${esc(w.id)}" aria-label="${esc(w.term)} 삭제">삭제</button></div></div></article>`).join(''):`<div class="empty"><h3>${book().words.length?'검색 결과 없음':'등록된 단어 없음'}</h3><p>${book().words.length?'검색어나 필터를 변경하세요.':'단어 추가 버튼으로 새 단어를 등록하세요.'}</p><button class="button primary" data-action="${book().words.length?'reset-filters':'add'}">${book().words.length?'필터 초기화':'단어 추가'}</button></div>`;
   $('#list-footer').textContent=`${book().words.length}개 중 ${words.length}개 표시`;
 }
 function setView(next) {
@@ -92,8 +92,17 @@ $('#word-form').addEventListener('submit',event=>{
   if(!update(()=>{if(old)Object.assign(old,word);else book().words.unshift(word);})){return;}
   $('#word-dialog').close();render();toast(old?'단어를 수정했습니다.':'단어를 추가했습니다.');
 });
-$('#delete-word').addEventListener('click',()=>{if(!confirm('이 단어를 삭제하시겠습니까?'))return;if(!update(()=>{book().words=book().words.filter(w=>w.id!==editingWord);})){return;}$('#word-dialog').close();render();toast('단어를 삭제했습니다.');});
+function deleteWord(wordId) {
+  const word = book().words.find(w => w.id === wordId);
+  if (!word || !confirm('“'+word.term+'” 단어를 삭제하시겠습니까?')) return;
+  if (!update(() => { book().words = book().words.filter(w => w.id !== wordId); })) return;
+  if ($('#word-dialog').open && editingWord === wordId) $('#word-dialog').close();
+  render(); toast('단어를 삭제했습니다.');
+}
+$('#delete-word').addEventListener('click', () => deleteWord(editingWord));
 $('#word-grid').addEventListener('click',event=>{
+  const remove=event.target.closest('[data-delete]');
+  if(remove){deleteWord(remove.dataset.delete);return;}
   const edit=event.target.closest('[data-edit]'),say=event.target.closest('[data-speak]'),action=event.target.closest('[data-action]');
   if(edit)openWord(edit.dataset.edit);if(say)speakWord(book().words.find(w=>w.id===say.dataset.speak));if(action){if(action.dataset.action==='add')openWord();else resetFilters();}
 });
